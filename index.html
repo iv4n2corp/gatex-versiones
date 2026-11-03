@@ -149,19 +149,22 @@ img{max-width:100%;display:block}
 .cuadro .otras-apps{opacity:0}
 .escena.otra .cuadro .respira{opacity:0}
 .escena.otra .cuadro .otras-apps{opacity:1}
-.lector .app-rota{display:none;align-items:center;gap:12px;min-height:44px}
+/* (03/11, fallo 221) El recuadro de abajo mide SIEMPRE lo mismo: lo de GateX Acceso
+   (matrícula, resultado y pie) se esconde sin quitar su sitio y el programa que
+   se ve va encima. Así nada de la página se mueve al cambiar de programa. */
+.lector .app-rota{display:flex;visibility:hidden;align-items:center;gap:12px;position:absolute;inset:12px 14px}
 .lector .app-rota img{width:40px;height:40px;border-radius:10px}
 .lector .app-rota b{display:block;font-size:17px}
 .lector .app-rota small{display:block;color:var(--suave);font-size:13px}
-.escena.otra .lector .matricula,.escena.otra .lector .resultado,.escena.otra .lector .pie{display:none}
-.escena.otra .lector .app-rota{display:flex}
+.escena.otra .lector .matricula,.escena.otra .lector .resultado,.escena.otra .lector .pie{visibility:hidden}
+.escena.otra .lector .app-rota{visibility:visible}
 /* (02/11) GateX Móvil en la rotación: un personaje al azar enseñando el teléfono.
    Vigilante = con su garita; traje = fondo de Gestión; reparto = Flota;
    operario = Dispositivos; de calle = sin fondo. */
 .escena.movil .cuadro .respira{opacity:0}
 .escena.movil.con-fondo .cuadro .otras-apps{opacity:.92}
-.escena.movil .lector .matricula,.escena.movil .lector .resultado,.escena.movil .lector .pie{display:none}
-.escena.movil .lector .app-rota{display:flex}
+.escena.movil .lector .matricula,.escena.movil .lector .resultado,.escena.movil .lector .pie{visibility:hidden}
+.escena.movil .lector .app-rota{visibility:visible}
 /* todos los personajes son cuadrados de 768 con la figura en el mismo sitio que el vigilante */
 .persona-movil{position:absolute;inset:0;opacity:0;transform:translateY(8px);transition:opacity .6s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
 .persona-movil img{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 10px 18px rgba(0,0,0,.35))}
@@ -211,7 +214,7 @@ img{max-width:100%;display:block}
 .puntos-apps i{width:7px;height:7px;border-radius:50%;background:var(--borde);transition:background .4s,transform .4s}
 .puntos-apps i.activo{background:#f97316;transform:scale(1.3)}
 .captura-portada{position:relative;margin-top:12px;overflow:hidden;border-radius:14px;transition:opacity .5s}
-.captura-portada .captura-dentro{position:absolute;left:0;top:0;transform-origin:0 0}
+.captura-portada .captura-dentro{position:absolute;left:0;top:0;transform-origin:0 0;transition:opacity .25s linear}
 .captura-portada .ventana{margin:0;pointer-events:none}
 @media (max-width:900px){ .captura-portada{display:none} }
 
@@ -269,6 +272,9 @@ nav.menu a:hover{color:var(--texto);background:var(--fondo2)}
 .escaner{position:absolute;top:0;bottom:0;width:30%;left:-30%;background:linear-gradient(90deg,transparent,rgba(249,115,22,.55),transparent);mix-blend-mode:multiply;opacity:0}
 .leyendo .escaner{opacity:1;animation:escanea 1.1s ease-in-out}
 .resultado{display:flex;align-items:center;gap:10px;margin-top:10px;font-weight:700;font-size:15px;min-height:26px}
+.resultado span{line-height:1.3}
+/* (03/11, fallo 221) en el teléfono algún resultado ocupa dos líneas: se reserva el sitio siempre */
+@media (max-width:520px){ .resultado{min-height:2.6em} }
 .resultado i{width:12px;height:12px;border-radius:50%;background:var(--suave);flex:none;transition:background .3s,box-shadow .3s}
 .resultado span{transition:color .3s}
 .ok .resultado i{background:var(--ok);box-shadow:0 0 10px var(--ok)}  .ok .resultado span{color:var(--ok)}
@@ -1551,8 +1557,16 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     escena.style.setProperty("--color-faro", COLORES[e][0]);
     escena.style.setProperty("--faro-claro", COLORES[e][1]);
   }
+  // (03/11, fallo 221) La rotación de la portada la para ENTRE lecturas (nunca a
+  // medias) y la deja seguir cuando vuelve a tocar GateX Acceso.
+  const barrera = { pedir: false, parada: false, seguir: null };
   async function ciclo() {
     for (;;) {
+      if (barrera.pedir) {
+        barrera.parada = true;
+        await new Promise(r => barrera.seguir = r);
+        barrera.parada = false;
+      }
       const [m, e] = DEMO[n++ % DEMO.length];
       placa.textContent = m; ponerEstado("leyendo");
       lector.classList.remove("leyendo"); void lector.offsetWidth; lector.classList.add("leyendo");
@@ -1592,6 +1606,19 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     return copia;
   });
   const ventanasDe = id => [document.querySelector("#" + id + " .ventana"), copiasPortada[COPIAS_PORTADA.indexOf(id)]].filter(Boolean);
+  /* (03/11, fallo 221) Las copias de la portada solo se animan mientras se ven y
+     nunca se cortan a medias: cada muestra pasa por puntos «limpios» (punto(raiz))
+     y, si la rotación quiere cambiar de programa, se queda ahí quieta hasta que le
+     vuelva a tocar (sigue por donde iba). Las de «Módulos» no se paran nunca. */
+  const PAUSAS = new Map(copiasPortada.map(c => [c, { pedir: true, parada: false, seguir: null }]));
+  async function punto(raiz) {
+    const c = PAUSAS.get(raiz);
+    if (!c || !c.pedir) return;
+    c.parada = true;
+    await new Promise(r => c.seguir = r);
+    c.parada = false;
+  }
+  function seguir(c) { c.pedir = false; if (c.seguir) { const r = c.seguir; c.seguir = null; r(); } }
 
   /* GateX Acceso: la cámara ve llegar el coche y lee su matrícula (y la enseña
      ampliada debajo); también tarjetas, camiones, visitas, salidas, prohibidos
@@ -1609,6 +1636,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     const oscura = c => "color-mix(in srgb," + c + " 70%,#000)";
     let hora = 6 * 60 + 2, i = 0;
     for (;;) {
+      await punto(raiz);
       const [m, tipo, mov, texto, como, pintura] = PASOS[i++ % PASOS.length];
       pl.textContent = "· · · ·"; res.textContent = ""; res.style.color = "";
       placa.classList.toggle("tarjeta", como === "tarjeta");
@@ -1658,6 +1686,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       odo.textContent = valor;
     }
     for (;;) {
+      await punto(raiz);
       // 1. Lo coge: foto del tablero y los km se leen solos
       estado("fParking"); dato("");
       vel.style.transform = "rotate(0deg)"; gas.style.transform = "rotate(135deg)"; odo.textContent = "------";
@@ -1669,15 +1698,18 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       estado("fUso", "uso"); vel.style.transform = "rotate(0deg)";
       await esperar(2200);
       // 2. Lo deja con el depósito en reserva
+      await punto(raiz);
       dato("fDejar"); vel.style.transform = "rotate(40deg)"; gas.style.transform = "rotate(18deg)";
       await esperar(1000);
       await leerKm("048390");
       dato("fReserva", "aviso"); estado("fParking", "aviso"); vel.style.transform = "rotate(0deg)";
       await esperar(2400);
       // 3. Avería grave: «No usar»
+      await punto(raiz);
       dato("fAveria", "mal"); estado("fNoUsar", "mal");
       await esperar(2400);
       // 4. Un papel que caduca
+      await punto(raiz);
       dato("fItv", "aviso"); estado("fParking");
       await esperar(2400);
     }
@@ -1715,6 +1747,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       puntero.style.left = "82%"; puntero.style.top = "78%";
     }
     for (;;) {
+      await punto(raiz);
       r.celdas.flat().forEach(c => { c.className = ""; c.textContent = ""; });
       estado("");
       puntero.style.left = "82%"; puntero.style.top = "78%";
@@ -1728,6 +1761,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       }
       estado("gHecho", "ok"); await esperar(2200);
       // 2. Luis se va de vacaciones lunes y martes: faltan dos tardes
+      await punto(raiz);
       estado("gVacaciones", "aviso"); poner(1, 0, "V"); poner(1, 1, "V");
       await esperar(1600);
       estado("gFaltan", "mal"); await esperar(1500);
@@ -1735,6 +1769,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       estado("gCandado", "aviso");
       for (const d of [0, 1]) { r.celdas[1][d].classList.add("candado"); await esperar(450); }
       await esperar(900);
+      await punto(raiz);
       // 3. Otra vez el botón: cambios lógicos. Pablo hace la tarde del lunes,
       // Sara la del martes y la del miércoles, y Pablo libra martes y miércoles juntos.
       await pulsar();
@@ -1747,6 +1782,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       estado("gOtraVez", "ok"); await esperar(2200);
       r.celdas.flat().forEach(c => c.classList.remove("cambio"));
       // 4. Mes cerrado y la gente avisada
+      await punto(raiz);
       estado("gCerrado", "ok"); await esperar(2200);
     }
   }
@@ -1768,6 +1804,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     const calma = p => { p.classList.remove("alarma", "busca"); color(p, "#22c55e"); };
     async function enOrden(p) { calma(p); avisar(VERDE, "dOrden", "dOrden2"); await esperar(1800); color(p, "#3b82f6"); }
     for (;;) {
+      await punto(raiz);
       aviso.classList.remove("si");
       pins.forEach(p => { p.classList.remove("si", "alarma", "busca"); color(p, "#3b82f6"); });
       await esperar(500);
@@ -1780,14 +1817,17 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
       await esperar(1800);
       await enOrden(pins[1]);
       // 2. Pánico (SOS) atendido por el centro de control
+      await punto(raiz);
       color(pins[3], "#ef4444"); pins[3].classList.add("alarma"); avisar(ROJO, "dSos", "dSos2");
       await esperar(2200);
       calma(pins[3]); avisar(VERDE, "dAtendido", "dAtendido2");
       await esperar(1800); color(pins[3], "#3b82f6");
       // 3. Batería baja
+      await punto(raiz);
       color(pins[4], "#f59e0b"); avisar(AMBAR, "dBateria", "dBateria2");
       await esperar(2000); color(pins[4], "#3b82f6");
       // 4. Un teléfono perdido, localizado
+      await punto(raiz);
       pins[5].classList.add("busca"); avisar(AZUL, "dPerdido", "dPerdido2");
       await esperar(2200);
       await enOrden(pins[5]);
@@ -1807,6 +1847,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     };
     const VISTOS = [["1234 GTX", ""], ["5678 GTX", ""], ["2468 GTX", "a"]];
     for (;;) {
+      await punto(raiz);
       vista(0, "mRonda"); vistos.innerHTML = "";
       for (const [m, c] of VISTOS) {
         pl.textContent = m;
@@ -1818,11 +1859,13 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
         await esperar(500);
       }
       await esperar(1200);
+      await punto(raiz);
       vista(1, "mFichar"); hecho.classList.remove("si");
       await esperar(1200);
       boton.classList.add("pulsado"); await esperar(180); boton.classList.remove("pulsado");
       hecho.classList.add("si");
       await esperar(2200);
+      await punto(raiz);
       vista(2, "mIncid"); enviada.classList.remove("si");
       await esperar(900);
       foto.classList.remove("flash"); void foto.offsetWidth; foto.classList.add("flash");
@@ -2356,7 +2399,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     { img: "img/dispositivos.webp", nombre: ["GateX Dispositivos", "GateX Devices"], que: ["Terminales y seguridad", "Devices and safety"] },
     { img: "img/movil.webp", nombre: ["GateX Móvil", "GateX Mobile"], que: ["App para Android", "Android app"] }
   ];
-  const MOVIL = ESCENAS.length, MOVIL_DURA = 8;        // (02/11) GateX Móvil: un personaje con el teléfono
+  const MOVIL = ESCENAS.length, MOVIL_DURA = 7.2;        // (02/11) GateX Móvil: un personaje con el teléfono
   // Todos son cuadrados de 768 con la figura donde el vigilante de GateX Acceso (encajados por el teléfono).
   // fondo: la escena de ESCENAS que va detrás (-1 = ninguno; vigilante y vigilanta traen su garita).
   // p: la pantalla del teléfono en % (x, y, ancho, alto) y su giro, para la animación de ejemplo.
@@ -2497,63 +2540,116 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--acento);outline-off
     img.addEventListener("click", cerrar);
     addEventListener("keydown", e => { if (e.key === "Escape") cerrar(); });
   })();
-  const RONDA = ACCESO_DURA + ESCENAS.length * VUELTA + MOVIL_DURA;
+  /* (03/11, fallo 221, Iván: «las animaciones de la cabecera se cortan: déjalas
+     que acaben… que no muevan otras composiciones de la página»). Antes cada
+     programa tenía sus segundos fijos y se cambiaba aunque la barrera, el
+     teléfono o la ventana de muestra estuvieran a medias. Ahora cada turno tiene
+     un MÍNIMO y luego espera a que lo de arriba acabe (la lectura de la barrera,
+     la vuelta de la animación del teléfono, la carga de su escena) y a que la
+     ventana de muestra de debajo llegue a un punto limpio; entonces se funde y
+     pasa al siguiente. El recuadro de la muestra mide siempre lo que la más alta
+     (y el de la matrícula no cambia de alto): nada de la página se mueve. */
+  const ANTICIPO = 2.5;           // s antes del mínimo se pide a la muestra que pare en el siguiente punto limpio
+  const ESPERA_MAX = 9;           // s como mucho esperando a la muestra (si la pestaña va a tirones)
+  const TEL_VUELTA = 6;           // s de una vuelta de la animación del teléfono (peEnt/peSal/peCelda…)
+  const TEL_MEDIA = 3;            // s de la llegada de un coche (peLlega): entre dos, la pantalla está limpia
   const puntos = [...$("puntosApps").children];
-  let dtFondo = 0, antes = 0, inicio = null, actual = -2;
+  let antes = 0, inicio = null, actual = -2, desde = 0, saleDesde = null, telDesde = 0, telFin = null;
+  const registro = window.gxRegistro = [];           // (para comprobarlo con el navegador sin pantalla)
+  window.gxTurno = () => actual;
+  const ahora = () => inicio === null ? 0 : (performance.now() - inicio) / 1000;
+  function reiniciarTelefono(caja) {
+    // vuelve a montar la pantalla del teléfono: su animación empieza desde el principio
+    const pan = caja.querySelector(".pantalla-ej");
+    if (pan && pan.dataset.tipo) pan.innerHTML = PANT[pan.dataset.tipo];
+    telDesde = ahora(); telFin = null;
+  }
   function ponerApp(cual) {
     // cual: -1 = GateX Acceso; 0..2 = Flota, Gestión, Dispositivos; 3 = GateX Móvil
-    actual = cual; recorrido = 0;
+    actual = cual; recorrido = 0; desde = ahora(); saleDesde = null;
     escena.classList.toggle("otra", cual >= 0 && cual < MOVIL);
     escena.classList.toggle("movil", cual === MOVIL);
     puntos.forEach((p, i) => p.classList.toggle("activo", i === cual + 1));
-    if (cual === MOVIL) ponerPersona(); else { cajaMovil.classList.remove("listo"); escena.classList.remove("con-fondo"); }
+    if (cual === MOVIL) { ponerPersona(); reiniciarTelefono(cajaMovil); }
+    else { cajaMovil.classList.remove("listo"); escena.classList.remove("con-fondo"); }
+    if (cual === -1) { reiniciarTelefono(respira); seguir(barrera); }
     const deFondo = cual === MOVIL ? PERSONAS[personaMovil].fondo : cual;
     ESCENAS.forEach((e, i) => $(e.id).setAttribute("opacity", i === deFondo ? 1 : 0));
-    if (cual >= 0) {
-      const a = APPS[cual], i = idioma === "en" ? 1 : 0;
-      $("appIcono").src = a.img; $("appNombre").textContent = a.nombre[i]; $("appQue").textContent = a.que[i];
-    }
-    // (02/11) debajo, la ventana de muestra de ese programa (cada una se anima sola: sin parpadeos)
+    ponerNombreApp();
+    // debajo, la ventana de muestra de ese programa: sigue por donde se quedó
     copiasPortada.forEach((c, i) => c.hidden = i !== cual + 1);
+    seguir(PAUSAS.get(copiasPortada[cual + 1]));
     encajarCopia();
+    registro.push({ s: +desde.toFixed(2), cual });
   }
+  function ponerNombreApp() {
+    if (actual < 0) return;
+    const a = APPS[actual], i = idioma === "en" ? 1 : 0;
+    $("appIcono").src = a.img; $("appNombre").textContent = a.nombre[i]; $("appQue").textContent = a.que[i];
+  }
+  // el recuadro de la muestra mide lo que la MÁS ALTA de las cinco (no cambia al pasar de una a otra)
+  let altoMuestra = 0;
   function encajarCopia() {
     const caja = $("capturaPortada"), copia = copiasPortada[actual + 1];
     if (!copia || !caja.offsetWidth) return;
     const escala = caja.offsetWidth / copia.offsetWidth;
     $("capturaDentro").style.transform = "scale(" + escala.toFixed(4) + ")";
-    caja.style.height = Math.round(copia.offsetHeight * escala) + "px";
+    const alto = Math.max(...copiasPortada.map(c => {
+      const oculta = c.hidden; c.hidden = false;
+      const h = c.offsetHeight; c.hidden = oculta; return h;
+    }));
+    altoMuestra = Math.max(altoMuestra, Math.round(alto * escala));
+    caja.style.height = altoMuestra + "px";
   }
-  addEventListener("resize", encajarCopia);
-  window.gxPonerApp = () => { if (actual >= 0) ponerApp(actual); };
+  addEventListener("resize", () => { altoMuestra = 0; encajarCopia(); });
+  window.gxPonerApp = () => { ponerNombreApp(); altoMuestra = 0; encajarCopia(); };
+
+  // lo mínimo de cada turno y cuándo ha acabado lo de arriba
+  const minimo = cual => cual === -1 ? ACCESO_DURA : cual === MOVIL ? MOVIL_DURA : CARGA + FINAL + QUIETA;
+  function arribaAcabado(cual, s, en) {
+    if (cual >= 0 && cual < MOVIL) return true;               // su escena ya terminó (fin = 1 y quieta)
+    if (cual === MOVIL) return s - telDesde >= TEL_VUELTA + .6;  // una vuelta entera del teléfono (+ lo que tarda en salir)
+    // GateX Acceso: la barrera acabó su lectura y el teléfono del vigilante está entre dos coches
+    if (!barrera.parada) return false;
+    if (telFin === null) telFin = telDesde + Math.ceil((s - telDesde) / TEL_MEDIA - 1e-6) * TEL_MEDIA;
+    return s >= telFin;
+  }
 
   function fondo(tiempo) {
-    dtFondo = Math.min((tiempo - (antes || tiempo)) / 1000, .05); antes = tiempo;
-    if (inicio === null) inicio = tiempo;
-    const s = (tiempo - inicio) / 1000, r = s % RONDA;
-    const cual = r < ACCESO_DURA ? -1 : Math.min(MOVIL, Math.floor((r - ACCESO_DURA) / VUELTA));
-    if (cual !== actual) ponerApp(cual);
-    if (!document.hidden) {
-      dibujarCarretera(dtFondo, tiempo);
-      if (cual >= 0 && cual < MOVIL) {
-        const en = (r - ACCESO_DURA) % VUELTA;
-        const progreso = sale(Math.min(1, en / CARGA)), fin = en < CARGA ? null : Math.min(1, (en - CARGA) / FINAL);
-        ESCENAS[cual].pintar(s, progreso, fin);
-        // fundido al cambiar de escena
-        const f = en > VUELTA - FUNDIDO ? (VUELTA - en) / FUNDIDO : en < FUNDIDO ? en / FUNDIDO : 1;
-        $(ESCENAS[cual].id).setAttribute("opacity", f.toFixed(3));
-      } else if (cual === MOVIL && PERSONAS[personaMovil].fondo >= 0) {
-        // el fondo del personaje se anima igual que en su programa
-        const en = r - ACCESO_DURA - ESCENAS.length * VUELTA, k = PERSONAS[personaMovil].fondo;
-        ESCENAS[k].pintar(s, sale(Math.min(1, en / CARGA)), en < CARGA ? null : Math.min(1, (en - CARGA) / FINAL));
-        const f = en > MOVIL_DURA - FUNDIDO ? (MOVIL_DURA - en) / FUNDIDO : en < FUNDIDO ? en / FUNDIDO : 1;
-        $(ESCENAS[k].id).setAttribute("opacity", Math.max(0, f).toFixed(3));
+    const dt = Math.min((tiempo - (antes || tiempo)) / 1000, .05); antes = tiempo;
+    if (inicio === null) { inicio = tiempo; ponerApp(-1); }
+    const s = ahora(), en = s - desde, cual = actual;
+    const muestra = PAUSAS.get(copiasPortada[cual + 1]);
+    if (saleDesde === null) {
+      if (en >= minimo(cual) - ANTICIPO) {
+        muestra.pedir = true;
+        if (cual === -1) barrera.pedir = true;
+      }
+      if (en >= minimo(cual) && arribaAcabado(cual, s, en) && (muestra.parada || en >= minimo(cual) + ESPERA_MAX)) {
+        saleDesde = s;
+        registro[registro.length - 1].muestraParada = muestra.parada;
+        registro[registro.length - 1].barreraParada = cual === -1 ? barrera.parada : null;
+        registro[registro.length - 1].dura = +en.toFixed(2);
       }
     }
+    // fundido: entra al empezar el turno y sale al acabar (también la ventana de muestra)
+    const f = saleDesde !== null ? Math.max(0, 1 - (s - saleDesde) / FUNDIDO) : Math.min(1, en / FUNDIDO);
+    $("capturaDentro").style.opacity = f.toFixed(3);
+    if (!document.hidden) {
+      dibujarCarretera(dt, tiempo);
+      const k = cual >= 0 && cual < MOVIL ? cual : cual === MOVIL ? PERSONAS[personaMovil].fondo : -1;
+      if (k >= 0) {
+        ESCENAS[k].pintar(s, sale(Math.min(1, en / CARGA)), en < CARGA ? null : Math.min(1, (en - CARGA) / FINAL));
+        $(ESCENAS[k].id).setAttribute("opacity", f.toFixed(3));
+      }
+    }
+    if (saleDesde !== null && s - saleDesde >= FUNDIDO) ponerApp(cual === MOVIL ? -1 : cual + 1);
     requestAnimationFrame(fondo);
   }
   if (quieto) {
-    ponerApp(-1);                                   // sin animaciones: solo GateX Acceso
+    // sin animaciones: solo GateX Acceso (su muestra y la barrera, sin parar)
+    actual = -1; copiasPortada.forEach((c, i) => c.hidden = i !== 0); seguir(PAUSAS.get(copiasPortada[0]));
+    encajarCopia();
     dibujarCarretera(0, 0); addEventListener("resize", () => dibujarCarretera(0, 0));
   } else requestAnimationFrame(fondo);
 })();
